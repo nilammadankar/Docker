@@ -1,0 +1,61 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('gitcheckout') {
+            steps {
+                checkout scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/Pritam-Khergade/student-ui.git']])
+            }
+        }
+        stage('build') {
+            steps {
+                sh '''
+                apt update
+                apt install -y awscli
+                apt install -y docker.io
+                docker build -t demo .
+                '''
+            }
+        }
+        stage('make aws dir') {
+            steps {
+                sh '''
+                mkdir -p ~/.aws
+                touch ~/.aws/credentials
+                
+                '''
+            }
+        }
+        stage('configure') {
+            steps {
+                withCredentials([aws(accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: 'cli-jenkins', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+   sh ''' cat << EOF >  ~/.aws/credentials
+                [default]
+                aws_access_key_id = ${AWS_ACCESS_KEY_ID}
+                aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+                 '''
+                 sh ''' aws s3 ls  '''
+}
+            }
+        }
+        stage('push ') {
+            steps {
+                 sh ''' aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 443684365066.dkr.ecr.us-east-1.amazonaws.com
+                 docker tag demo:latest 443684365066.dkr.ecr.us-east-1.amazonaws.com/nilam:latest
+                 docker push 443684365066.dkr.ecr.us-east-1.amazonaws.com/nilam:latest 
+                 docker system prune -a -f '''
+            }
+        }
+    }
+        post {
+        // Clean after build
+        always {
+            cleanWs(cleanWhenNotBuilt: false,
+                    deleteDirs: true,
+                    disableDeferredWipeout: true,
+                    notFailBuild: true,
+                    patterns: [[pattern: '.gitignore', type: 'INCLUDE'],
+                               [pattern: '.propsfile', type: 'EXCLUDE']])
+        }
+    }
+}
